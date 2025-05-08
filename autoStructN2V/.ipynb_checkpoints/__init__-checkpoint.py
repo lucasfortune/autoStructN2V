@@ -22,6 +22,13 @@ from .trainers import (
     EarlyStopping
 )
 
+from .masking import (
+    create_stage1_mask_kernel,
+    StructuralNoiseExtractor,
+    create_full_mask,
+    create_mask_for_training
+)
+
 from .inference import (
     AutoStructN2VPredictor,
     visualize_denoising_result,
@@ -47,6 +54,12 @@ __all__ = [
     # Trainers
     'AutoStructN2VTrainer',
     'EarlyStopping',
+
+       # Masking
+    'create_stage1_mask_kernel',
+    'StructuralNoiseExtractor',
+    'create_full_mask',
+    'create_mask_for_training',
     
     # Inference
     'AutoStructN2VPredictor',
