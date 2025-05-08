@@ -60,6 +60,7 @@ var/
 # IDE specific files
 .idea/
 .vscode/
+.ipynb_checkpoints
 *.swp
 *.swo
 
