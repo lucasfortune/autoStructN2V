@@ -38,8 +38,13 @@ from .inference import (
 # Expose key utilities
 from .utils.training import set_seed
 
+from .pipeline import run_pipeline
+
 # Define what gets imported with "from autoStructN2V import *"
 __all__ = [
+
+    'run_pipeline',
+    
     # Datasets
     'BaseNoiseDataset',
     'TrainingDataset',

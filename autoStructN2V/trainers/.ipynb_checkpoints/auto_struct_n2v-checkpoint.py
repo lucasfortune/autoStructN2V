@@ -1,10 +1,11 @@
-# trainers/auto_struct_n2v.py
+# autoStructN2V/trainers/auto_struct_n2v.py
 import os
 import torch
 import torch.nn as nn
 from torch.utils.tensorboard import SummaryWriter
 from tqdm import tqdm
 import numpy as np
+import torchvision.utils as vutils  # Add this import
 
 from .base import BaseTrainer
 from .callbacks import EarlyStopping
@@ -37,12 +38,48 @@ class AutoStructN2VTrainer(BaseTrainer):
         
         # Set up logging based on stage
         stage_name = 'n2v' if stage == 'stage1' else 'structn2v'
+        os.makedirs(experiment_name, exist_ok=True)  # Ensure experiment directory exists
         self.log_dir = os.path.join(experiment_name, stage_name, self.current_time)
         self.writer = SummaryWriter(self.log_dir)
         
-        # Log hyperparameters
-        self.writer.add_text("Hyperparameters", 
-                             "\n".join(f"{k}: {v}" for k, v in hparams.items()))
+        # Log hyperparameters - convert dict to string for TensorBoard
+        hparams_str = self._format_hparams_for_logging(hparams)
+        self.writer.add_text("Hyperparameters", hparams_str)
+    
+    def _format_hparams_for_logging(self, hparams):
+        """Format hyperparameters for TensorBoard logging."""
+        lines = []
+        for k, v in hparams.items():
+            if isinstance(v, dict):
+                lines.append(f"{k}:")
+                for sub_k, sub_v in v.items():
+                    lines.append(f"  {sub_k}: {sub_v}")
+            else:
+                lines.append(f"{k}: {v}")
+        return "\n".join(lines)
+    
+    def _get_param(self, param_name, default_value=None):
+        """
+        Get a parameter from hparams, supporting both structured and flat config formats.
+        
+        Args:
+            param_name (str): Parameter name without prefix
+            default_value: Default value if parameter is not found
+            
+        Returns:
+            Parameter value
+        """
+        # Check structured format first
+        if self.stage == 'stage1':
+            if 'stage1' in self.hparams and param_name in self.hparams['stage1']:
+                return self.hparams['stage1'][param_name]
+            # Fall back to flat format with n2v_ prefix
+            return self.hparams.get(f'n2v_{param_name}', default_value)
+        else:  # stage2
+            if 'stage2' in self.hparams and param_name in self.hparams['stage2']:
+                return self.hparams['stage2'][param_name]
+            # Fall back to flat format with structn2v_ prefix
+            return self.hparams.get(f'structn2v_{param_name}', default_value)
     
     def train(self, train_loader, val_loader, test_loader=None):
         """
@@ -54,7 +91,7 @@ class AutoStructN2VTrainer(BaseTrainer):
             test_loader (DataLoader, optional): Test data loader. Required for stage2. Defaults to None.
             
         Returns:
-            For stage1: numpy.ndarray - Custom mask for stage2
+            For stage1: numpy.ndarray - denoised patches for custom mast creation for stage2
             For stage2: None
         """
         # Validate inputs based on stage
@@ -62,18 +99,21 @@ class AutoStructN2VTrainer(BaseTrainer):
             raise ValueError("test_loader is required for stage2 training")
 
         # Set up early stopping
-        early_stopping = EarlyStopping(
-            patience=self.hparams.get('early_stopping_patience', 10),
-            min_delta=self.hparams.get('early_stopping_min_delta', 0.001)
-        )
+        patience = self.hparams.get('early_stopping_patience', 10)
+        min_delta = self.hparams.get('early_stopping_min_delta', 0.001)
+        early_stopping = EarlyStopping(patience=patience, min_delta=min_delta)
         
         # Path to save best model
+        os.makedirs(self.log_dir, exist_ok=True)  # Ensure log directory exists
         best_model_path = os.path.join(self.log_dir, 'best_model.pth')
+        
+        # Get number of epochs - check in both locations
+        num_epochs = self.hparams.get('num_epochs', 100)
         
         # Main training loop
         print(f"Training {self.stage} model...")
-        with tqdm(total=self.hparams['num_epochs'], desc="Training Progress", ncols=100) as pbar:
-            for epoch in range(self.hparams['num_epochs']):
+        with tqdm(total=num_epochs, desc="Training Progress", ncols=100) as pbar:
+            for epoch in range(num_epochs):
                 # Training phase
                 train_loss = self.train_epoch(train_loader)
                 self.writer.add_scalar('Loss/train', train_loss, epoch)
@@ -88,7 +128,8 @@ class AutoStructN2VTrainer(BaseTrainer):
 
                 # Log test images periodically
                 if test_loader and epoch % 5 == 0:
-                    patch_size = self.hparams['n2v_patch_size'] if self.stage == 'stage1' else self.hparams['structn2v_patch_size']
+                    # Get patch_size from config using helper method
+                    patch_size = self._get_param('patch_size', 64)
                     stride = patch_size // 2
                     self.log_test_images(test_loader, self.writer, epoch, patch_size, stride)
                 
@@ -115,7 +156,7 @@ class AutoStructN2VTrainer(BaseTrainer):
             return denoised_patches
         else:  # stage2
             print("Starting testing phase...")
-            patch_size = self.hparams['structn2v_patch_size']
+            patch_size = self._get_param('patch_size', 64)
             stride = patch_size // 2
             test_loss = self.test_model(test_loader, self.writer, patch_size, stride)
             print(f"Testing completed. Test Loss: {test_loss:.4f}")
@@ -162,6 +203,9 @@ class AutoStructN2VTrainer(BaseTrainer):
         denoised_patches = []
         
         with torch.no_grad():
+            # Get max patches to process from config
+            max_patches = self._get_param('max_denoised_patches', 1000)
+            
             for inputs, targets, _ in data_loader:
                 inputs = inputs.to(self.device)
                 outputs = self.model(inputs)
@@ -171,7 +215,108 @@ class AutoStructN2VTrainer(BaseTrainer):
                 denoised_patches.extend([patch for patch in denoised_np])
                 
                 # Limit the number of patches to process
-                if len(denoised_patches) >= 1000:
+                if len(denoised_patches) >= max_patches:
                     break
         
         return np.array(denoised_patches)
+    
+    def log_test_images(self, test_loader, writer, epoch, patch_size, stride):
+        """
+        Log test images during training.
+        
+        Args:
+            test_loader (DataLoader): Test data loader
+            writer (SummaryWriter): TensorBoard writer
+            epoch (int): Current epoch
+            patch_size (int): Size of patches for processing
+            stride (int): Stride for patch extraction
+        """
+        self.model.eval()
+        all_images = []
+        
+        with torch.no_grad():
+            for inputs, targets, masks in test_loader:
+                inputs = inputs.to(self.device)
+                
+                # Process image patches
+                input_patches = image_to_patches(inputs[0], patch_size, stride)
+                output_patches = []
+                
+                for patch in input_patches:
+                    output = self.model(patch.unsqueeze(0))
+                    output_patches.append(output.squeeze(0))
+                
+                output_patches = torch.stack(output_patches)
+                outputs = patches_to_image(output_patches, inputs[0].shape, patch_size, stride)
+                
+                # Store results
+                inputs = torch.clamp(inputs.cpu(), 0, 1)
+                outputs = torch.clamp(outputs.cpu().unsqueeze(0), 0, 1)
+                combined = torch.cat((inputs, outputs), dim=3)
+                all_images.append(combined)
+        
+        if all_images:
+            all_images = torch.cat(all_images, dim=0)
+            
+            # Log test results
+            writer.add_image(f'Test/Epoch_{epoch}',
+                            vutils.make_grid(all_images, nrow=1, padding=2, normalize=False),
+                            0)
+    
+    def test_model(self, test_loader, writer, patch_size, stride):
+        """
+        Test model on full images.
+        
+        Args:
+            test_loader (DataLoader): Test data loader
+            writer (SummaryWriter): TensorBoard writer
+            patch_size (int): Size of patches for processing
+            stride (int): Stride for patch extraction
+            
+        Returns:
+            float: Average test loss
+        """
+        self.model.eval()
+        test_loss = 0.0
+        all_images = []
+        
+        with torch.no_grad():
+            for inputs, targets, masks in test_loader:
+                inputs = inputs.to(self.device)
+                targets = targets.to(self.device)
+                masks = masks.to(self.device)
+                
+                # Process image patches
+                input_patches = image_to_patches(inputs[0], patch_size, stride)
+                output_patches = []
+                
+                for patch in input_patches:
+                    output = self.model(patch.unsqueeze(0))
+                    output_patches.append(output.squeeze(0))
+                
+                output_patches = torch.stack(output_patches)
+                outputs = patches_to_image(output_patches, inputs[0].shape, patch_size, stride)
+                
+                # Calculate and log loss
+                loss = self.calculate_loss(outputs.unsqueeze(0), targets, masks)
+                test_loss += loss.item()
+                
+                # Store results
+                inputs = torch.clamp(inputs.cpu(), 0, 1)
+                outputs = torch.clamp(outputs.cpu().unsqueeze(0), 0, 1)
+                combined = torch.cat((inputs, outputs), dim=3)
+                all_images.append(combined)
+        
+        if all_images:
+            test_loss /= len(test_loader)
+            all_images = torch.cat(all_images, dim=0)
+            
+            # Log test results
+            writer.add_scalar('Loss/test', test_loss, 0)
+            writer.add_image('Test/Input_and_Output_Images',
+                            vutils.make_grid(all_images, nrow=1, padding=2, normalize=False),
+                            0)
+        else:
+            test_loss = 0.0
+        
+        return test_loss
