@@ -231,7 +231,7 @@ class StructuralNoiseExtractor:
         rows, cols = zip(*ring_coords)
         return self._center_square[rows, cols]
     
-    def _process_ring(self, ring_coords, ring_idx):
+    def _process_ring(self, ring_coords, ring_idx, verbose):
         """
         Process a single ring and return the threshold and valid pixel mask.
         
@@ -257,8 +257,11 @@ class StructuralNoiseExtractor:
         threshold = min_val + (value_range * current_percentile / 100)
         
         # Check if ring contains significant structure
-        print(f"ring{ring_idx}: max_value: {max_val}")
         should_process = max_val >= self._center_value * self.center_ratio_threshold
+        if verbose:
+            print(f"Ring {ring_idx}: Max value: {max_val:.4f}, Center ratio: {max_val/self._center_value:.4f}, Process: {should_process}")
+        elif should_process:
+            print(f"ring{ring_idx}: max_value: {max_val}")
         
         # Create mask for pixels above threshold
         if should_process:
@@ -346,7 +349,7 @@ class StructuralNoiseExtractor:
             
         return limited_mask
     
-    def extract_mask(self, noise_patterns):
+    def extract_mask(self, noise_patterns, verbose):
         """
         Extract binary mask from a list of noisy patterns by averaging their autocorrelations.
         
@@ -413,8 +416,9 @@ class StructuralNoiseExtractor:
                 self._autocorr = np.mean(cropped_autocorrs, axis=0)
             else:
                 self._autocorr = np.mean(autocorrs, axis=0)
-                
-            print(f"Averaged autocorrelations from {len(autocorrs)} images")
+
+            if verbose:
+                print(f"Averaged autocorrelations from {len(autocorrs)} images")
             
         # Process center square and cache it
         self._center_square = self._crop_and_adapt(self._autocorr)
@@ -431,7 +435,8 @@ class StructuralNoiseExtractor:
         center_y, center_x = center_size // 2, center_size // 2
         binary_mask[center_y, center_x] = True
         self._center_value = self._center_square[center_y, center_x]
-        print(f"center value: {self._center_value}")
+        if verbose:
+            print(f"center value: {self._center_value}")
         
         # Pre-compute all ring coordinates
         max_rings = max(center_y, center_x) + 1
@@ -440,7 +445,7 @@ class StructuralNoiseExtractor:
         # Process each ring
         for ring_idx, ring_coords in enumerate(self._ring_coordinates, start=1):
             # Process the ring and get threshold and mask
-            threshold, should_process, above_threshold_mask = self._process_ring(ring_coords, ring_idx)
+            threshold, should_process, above_threshold_mask = self._process_ring(ring_coords, ring_idx, verbose)
             
             # Skip ring if it doesn't contain significant structure
             if not should_process:
@@ -466,13 +471,31 @@ class StructuralNoiseExtractor:
                 
                 # Count removed components for debugging
                 num_components = np.max(labeled_mask)
-                if num_components > 1:
+                if num_components > 1 and verbose:
                     print(f"Removed {num_components - 1} disconnected components, kept component {center_label}")
             else:
                 print("Warning: Center pixel was not True in the binary mask!")
         
         # Apply size limit if requested
         binary_mask = self._limit_mask_size(binary_mask)
+
+        if verbose:
+            import matplotlib.pyplot as plt
+            
+            print("\n=== Structural Noise Extraction ===")
+            print(f"Autocorrelation center size: {self._center_square.shape}")
+            print(f"Center value: {self._center_value:.6f}")
+            print(f"Mask size: {binary_mask.shape}")
+            print(f"True values in mask: {np.sum(binary_mask)} ({np.sum(binary_mask)/binary_mask.size*100:.2f}%)")
+            
+            # Visualize autocorrelation and mask
+            fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(12, 5))
+            ax1.imshow(self._center_square, cmap='viridis')
+            ax1.set_title("Autocorrelation Center")
+            ax2.imshow(binary_mask, cmap='gray')
+            ax2.set_title("Extracted Binary Mask")
+            plt.tight_layout()
+            plt.show()
         
         return binary_mask, self._center_square
     

@@ -50,7 +50,6 @@ class AutoStructN2VPredictor:
         Returns:
             numpy.ndarray: Denoised image array
         """
-        print('test1')
         # Generate default output path if not provided
         if output_path is None:
             base_path, ext = os.path.splitext(image_path)

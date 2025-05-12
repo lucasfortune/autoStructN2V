@@ -33,6 +33,8 @@ def create_stage2_mask(denoised_patches, config):
         config['stage2']['extractor'] = {}
     
     extractor_config = config['stage2']['extractor']
+
+    verbose = config.get('verbose', False)
     
     # Create extractor with config parameters (using get() with defaults)
     extractor = StructuralNoiseExtractor(
@@ -53,13 +55,14 @@ def create_stage2_mask(denoised_patches, config):
     )
     
     # Extract structured mask
-    struct_mask, _ = extractor.extract_mask(denoised_patches)
+    struct_mask, _ = extractor.extract_mask(denoised_patches, verbose)
     
     # Create full mask and prediction kernel
     full_mask, prediction_kernel = create_full_mask(
         struct_mask,
         config['stage2'].get('patch_size', 64),
-        config['stage2'].get('mask_percentage', 10.0)
+        config['stage2'].get('mask_percentage', 10.0),
+        verbose
     )
     
     return full_mask, prediction_kernel
@@ -105,6 +108,7 @@ def run_pipeline(config):
     """
     # Validate configuration
     config = validate_config(config)
+    verbose = config.get('verbose', False)
     
     # Create output directories
     dirs = create_output_directories(config)
@@ -123,11 +127,13 @@ def run_pipeline(config):
         dirs,
         config['split_ratio'],
         config['image_extension'],
-        config['random_seed']
+        config['random_seed'],
+        verbose=verbose
     )
     
     # Save a copy of the configuration
     import json
+    import os
     with open(os.path.join(dirs['experiment'], 'config.json'), 'w') as f:
         # Convert any non-serializable objects to strings
         config_serializable = {k: (str(v) if not isinstance(v, (dict, list, str, int, float, bool, type(None))) else v) 
@@ -143,7 +149,7 @@ def run_pipeline(config):
     
     # Create dataloaders for stage 1
     print("Creating dataloaders...")
-    train_loader, val_loader, test_loader = create_dataloaders(image_paths, config, "stage1")
+    train_loader, val_loader, test_loader = create_dataloaders(image_paths, config, "stage1", verbose=verbose)
     
     # Create stage 1 model
     stage1_model = create_model(
@@ -164,7 +170,7 @@ def run_pipeline(config):
         optimizer=optimizer,
         scheduler=scheduler,
         device=device,
-        hparams=config,  # Pass full config
+        hparams=config,
         stage='stage1',
         experiment_name=os.path.join(dirs['stage1']['logs'], datetime.now().strftime("%Y%m%d-%H%M%S"))
     )
@@ -291,7 +297,8 @@ def run_pipeline(config):
         "stage2",
         stage1_denoised_dir=stage1_denoised_dir,
         structured_mask=stage2_mask,
-        prediction_kernel=stage2_prediction_kernel
+        prediction_kernel=stage2_prediction_kernel,
+        verbose=verbose
     )
     
     # Create stage 2 model
@@ -358,5 +365,135 @@ def run_pipeline(config):
         'final_results_dir': dirs['final_results'],
         'config': config
     }
+
+    if verbose:
+        import matplotlib.pyplot as plt
+        import matplotlib.patches as patches
+        from glob import glob
+        import os
+        import numpy as np
+        from ..utils.image import load_and_normalize_image
+        from skimage import filters
+        
+        print("\n=== Final Results Visualization ===")
+        
+        # Get result files
+        result_files = []
+        for split in ['train', 'val', 'test']:
+            split_dir = os.path.join(dirs['final_results'], split)
+            if os.path.exists(split_dir):
+                files = glob(os.path.join(split_dir, '*_denoised.tif'))
+                if files:
+                    result_files.extend(files)
+                    break  # Stop after finding files in the first available split
+        
+        if result_files:
+            # Use only the first result file
+            result_file = result_files[0]
+            print(f"Visualizing result file: {os.path.basename(result_file)}")
+            
+            # Determine which split this file belongs to
+            split_name = None
+            for split in ['train', 'val', 'test']:
+                if split in result_file:
+                    split_name = split
+                    break
+            
+            if not split_name:
+                print(f"Could not determine split for {os.path.basename(result_file)}")
+                return summary
+            
+            # Find the original file
+            original_basename = os.path.basename(result_file).replace('_denoised.tif', '.tif')
+            original_file_path = os.path.join(dirs['data'], split_name, original_basename)
+            
+            if not os.path.exists(original_file_path):
+                # Try alternative match
+                prefix = os.path.basename(result_file).split('_denoised')[0]
+                potential_files = glob(os.path.join(dirs['data'], split_name, f"{prefix}*.tif"))
+                if potential_files:
+                    original_file_path = potential_files[0]
+                else:
+                    print(f"Could not find original file for {os.path.basename(result_file)}")
+                    return summary
+            
+            # Load images
+            original = load_and_normalize_image(original_file_path)
+            denoised = load_and_normalize_image(result_file)
+            
+            # Find an interesting region to magnify (area with high gradient magnitude)
+            gradient_mag = filters.sobel(denoised)
+            
+            # Apply Gaussian blur to avoid picking noise
+            smoothed_gradient = filters.gaussian(gradient_mag, sigma=3)
+            
+            # Find coordinates of maximum gradient (most interesting region)
+            h, w = denoised.shape
+            zoom_size = min(100, h//4, w//4)  # Size of zoom region
+            
+            # Avoid edges by limiting search area
+            edge_margin = zoom_size // 2
+            search_area = smoothed_gradient[edge_margin:h-edge_margin, edge_margin:w-edge_margin]
+            y_local, x_local = np.unravel_index(np.argmax(search_area), search_area.shape)
+            
+            # Convert back to global coordinates
+            y_center = y_local + edge_margin
+            x_center = x_local + edge_margin
+            
+            # Calculate zoom region bounds
+            zoom_y1 = max(0, y_center - zoom_size//2)
+            zoom_y2 = min(h, y_center + zoom_size//2)
+            zoom_x1 = max(0, x_center - zoom_size//2)
+            zoom_x2 = min(w, x_center + zoom_size//2)
+            
+            # Extract zoom regions
+            original_zoom = original[zoom_y1:zoom_y2, zoom_x1:zoom_x2]
+            denoised_zoom = denoised[zoom_y1:zoom_y2, zoom_x1:zoom_x2]
+            
+            # Create figure with 3 rows (full images, zoom, histograms)
+            fig = plt.figure(figsize=(12, 12))
+            
+            # Full images (row 1)
+            ax1 = plt.subplot(3, 2, 1)
+            ax1.imshow(original, cmap='gray')
+            ax1.set_title("Original")
+            rect = patches.Rectangle((zoom_x1, zoom_y1), zoom_x2-zoom_x1, zoom_y2-zoom_y1, 
+                                    linewidth=2, edgecolor='r', facecolor='none')
+            ax1.add_patch(rect)
+            ax1.axis('off')
+            
+            ax2 = plt.subplot(3, 2, 2)
+            ax2.imshow(denoised, cmap='gray')
+            ax2.set_title("Denoised")
+            rect = patches.Rectangle((zoom_x1, zoom_y1), zoom_x2-zoom_x1, zoom_y2-zoom_y1, 
+                                    linewidth=2, edgecolor='r', facecolor='none')
+            ax2.add_patch(rect)
+            ax2.axis('off')
+            
+            # Zoomed regions (row 2)
+            ax3 = plt.subplot(3, 2, 3)
+            ax3.imshow(original_zoom, cmap='gray')
+            ax3.set_title("Original (Magnified)")
+            ax3.axis('off')
+            
+            ax4 = plt.subplot(3, 2, 4)
+            ax4.imshow(denoised_zoom, cmap='gray')
+            ax4.set_title("Denoised (Magnified)")
+            ax4.axis('off')
+            
+            # Histograms (row 3)
+            ax5 = plt.subplot(3, 2, 5)
+            ax5.hist(original.flatten(), bins=50)
+            ax5.set_title("Original Histogram")
+            
+            ax6 = plt.subplot(3, 2, 6)
+            ax6.hist(denoised.flatten(), bins=50)
+            ax6.set_title("Denoised Histogram")
+            
+            plt.tight_layout()
+            plt.suptitle(f"{split_name.capitalize()}: {os.path.basename(original_file_path)}", y=0.98)
+            plt.show()
+        else:
+            print("No result files found for visualization")
     
     return summary

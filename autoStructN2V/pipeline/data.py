@@ -12,7 +12,7 @@ from ..datasets import TrainingDataset, ValidationDataset, TestDataset
 from ..masking import create_stage1_mask_kernel, create_full_mask, StructuralNoiseExtractor
 
 def split_dataset(input_dir, output_dirs, split_ratio=(0.7, 0.15, 0.15), 
-                image_extension='.tif', seed=None):
+                image_extension='.tif', seed=None, verbose = False):
     """
     Split dataset into training, validation, and test sets.
     
@@ -53,7 +53,17 @@ def split_dataset(input_dir, output_dirs, split_ratio=(0.7, 0.15, 0.15),
     val_paths = _copy_images(val_images, os.path.join(output_dirs['data'], 'val'))
     test_paths = _copy_images(test_images, os.path.join(output_dirs['data'], 'test'))
     
-    print(f"Dataset split: {len(train_paths)} training, {len(val_paths)} validation, {len(test_paths)} test images")
+    if verbose:
+        print("\n=== Dataset Split Details ===")
+        print(f"Total images: {len(images)}")
+        print(f"Training: {len(train_paths)} images ({len(train_paths)/len(images)*100:.1f}%)")
+        print(f"Validation: {len(val_paths)} images ({len(val_paths)/len(images)*100:.1f}%)")
+        print(f"Testing: {len(test_paths)} images ({len(test_paths)/len(images)*100:.1f}%)")
+        if train_paths:
+            print(f"Sample training images: {[os.path.basename(p) for p in train_paths[:3]]}")
+    else:
+        print(f"Dataset split: {len(train_paths)} training, {len(val_paths)} validation, {len(test_paths)} test images")
+    
     
     return train_paths, val_paths, test_paths
 
@@ -79,7 +89,7 @@ def _copy_images(images, output_dir):
     
     return output_paths
 
-def create_dataloaders(image_paths, config, stage="stage1", stage1_denoised_dir=None, structured_mask=None, prediction_kernel=None):
+def create_dataloaders(image_paths, config, stage="stage1", stage1_denoised_dir=None, structured_mask=None, prediction_kernel=None, verbose=False):
     """
     Create data loaders for training, validation, and testing.
     
@@ -128,7 +138,8 @@ def create_dataloaders(image_paths, config, stage="stage1", stage1_denoised_dir=
         mask, prediction_kernel = create_full_mask(
             single_mask,
             stage_config['patch_size'],
-            stage_config['mask_percentage']
+            stage_config['mask_percentage'],
+            verbose
         )
     else:  # stage2
         # For stage 2, use provided structured mask if available

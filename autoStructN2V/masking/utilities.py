@@ -1,7 +1,7 @@
 # autoStructN2V/masking/utilities.py
 import numpy as np
 
-def create_full_mask(single_masking_kernel, patch_size, mask_percentage):
+def create_full_mask(single_masking_kernel, patch_size, mask_percentage, verbose):
     """
     Create a numpy array with efficient random placements of the input square pattern.
     
@@ -128,8 +128,28 @@ def create_full_mask(single_masking_kernel, patch_size, mask_percentage):
     
     # Final actual percentage
     actual_percentage = (np.sum(full_masking_kernel) / total_pixels) * 100
-    print(f"Achieved {actual_percentage:.2f}% True values (target: {mask_percentage}%)")
-    print(f"Placed {np.sum(prediction_kernel)} pattern centers")
+    if verbose:
+        import matplotlib.pyplot as plt
+        
+        print("\n=== Mask Creation Details ===")
+        print(f"Patch size: {patch_size}x{patch_size}")
+        print(f"Target mask percentage: {mask_percentage:.2f}%")
+        print(f"Achieved mask percentage: {actual_percentage:.2f}%")
+        print(f"Placed {patterns_placed} patterns")
+        print(f"Pattern size: {single_masking_kernel.shape}")
+        print(f"Total masked pixels: {np.sum(full_masking_kernel)}")
+        
+        # Visualize masks
+        fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(10, 4))
+        ax1.imshow(full_masking_kernel, cmap='gray')
+        ax1.set_title("Full Mask")
+        ax2.imshow(prediction_kernel, cmap='gray')
+        ax2.set_title("Prediction Kernel")
+        plt.tight_layout()
+        plt.show()
+    else:
+        print(f"Achieved {actual_percentage:.2f}% True values (target: {mask_percentage}%)")
+        print(f"Placed {np.sum(prediction_kernel)} pattern centers")
     
     return full_masking_kernel, prediction_kernel
 

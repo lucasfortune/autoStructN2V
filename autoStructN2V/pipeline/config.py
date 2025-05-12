@@ -24,6 +24,7 @@ def validate_config(config):
         'device': 'cuda',  # 'cuda' or 'cpu'
         'split_ratio': (0.7, 0.15, 0.15),  # (train, val, test)
         'image_extension': '.tif',
+        'verbose': False,
         
         # Training parameters
         'num_epochs': 100,

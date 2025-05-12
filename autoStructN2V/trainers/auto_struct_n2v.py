@@ -45,6 +45,8 @@ class AutoStructN2VTrainer(BaseTrainer):
         # Log hyperparameters - convert dict to string for TensorBoard
         hparams_str = self._format_hparams_for_logging(hparams)
         self.writer.add_text("Hyperparameters", hparams_str)
+
+        self.verbose=hparams['verbose']
     
     def _format_hparams_for_logging(self, hparams):
         """Format hyperparameters for TensorBoard logging."""
@@ -152,6 +154,49 @@ class AutoStructN2VTrainer(BaseTrainer):
         if self.stage == 'stage1':
             print("Using Model to denoise patches for Stage 2...")
             denoised_patches = self.create_denoised_patches(train_loader)
+
+            if self.verbose:
+                import matplotlib.pyplot as plt
+                import numpy as np
+                
+                print("\n=== Stage 1 Denoising Results ===")
+                
+                # Show a few sample patches
+                num_samples = min(3, len(denoised_patches))
+                fig, axes = plt.subplots(2, num_samples, figsize=(4*num_samples, 8))
+                
+                # Get some original patches for comparison
+                batch = next(iter(train_loader))
+                inputs = batch[0].cpu().numpy()
+                
+                for i in range(num_samples):
+                    # Original
+                    axes[0, i].imshow(inputs[i, 0], cmap='gray')
+                    axes[0, i].set_title(f"Original {i+1}")
+                    
+                    # Denoised
+                    axes[1, i].imshow(denoised_patches[i, 0], cmap='gray')
+                    axes[1, i].set_title(f"Denoised {i+1}")
+                
+                plt.tight_layout()
+                plt.show()
+                
+                # Show histograms
+                if num_samples > 0:
+                    fig, axes = plt.subplots(2, num_samples, figsize=(4*num_samples, 6))
+                    
+                    for i in range(num_samples):
+                        # Original histogram
+                        axes[0, i].hist(inputs[i, 0].flatten(), bins=50)
+                        axes[0, i].set_title(f"Original {i+1} Histogram")
+                        
+                        # Denoised histogram
+                        axes[1, i].hist(denoised_patches[i, 0].flatten(), bins=50)
+                        axes[1, i].set_title(f"Denoised {i+1} Histogram")
+                    
+                    plt.tight_layout()
+                    plt.show()
+            
             self.writer.close()
             return denoised_patches
         else:  # stage2
@@ -159,6 +204,8 @@ class AutoStructN2VTrainer(BaseTrainer):
             patch_size = self._get_param('patch_size', 64)
             stride = patch_size // 2
             test_loss = self.test_model(test_loader, self.writer, patch_size, stride)
+                
+            
             print(f"Testing completed. Test Loss: {test_loss:.4f}")
             self.writer.close()
             return None
