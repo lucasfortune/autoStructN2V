@@ -148,9 +148,21 @@ class BaseTrainer:
         with torch.no_grad():
             for inputs, targets, masks in test_loader:
                 inputs = inputs.to(self.device)
+                original_shape = inputs[0].shape
+                
+                # Calculate required padding
+                h, w = original_shape[1:]
+                pad_h = (patch_size - h % stride) % stride
+                pad_w = (patch_size - w % stride) % stride
+                
+                # Apply padding if needed
+                if pad_h > 0 or pad_w > 0:
+                    padded_inputs = torch.nn.functional.pad(inputs, (0, pad_w, 0, pad_h), mode='reflect')
+                else:
+                    padded_inputs = inputs
                 
                 # Process image patches
-                input_patches = image_to_patches(inputs[0], patch_size, stride)
+                input_patches = image_to_patches(padded_inputs[0], patch_size, stride)
                 output_patches = []
                 
                 for patch in input_patches:
@@ -158,7 +170,10 @@ class BaseTrainer:
                     output_patches.append(output.squeeze(0))
                 
                 output_patches = torch.stack(output_patches)
-                outputs = patches_to_image(output_patches, inputs[0].shape, patch_size, stride)
+                outputs = patches_to_image(output_patches, padded_inputs[0].shape, patch_size, stride)
+                
+                # Crop back to original size
+                outputs = outputs[:, :original_shape[1], :original_shape[2]]
                 
                 # Store results
                 inputs = torch.clamp(inputs.cpu(), 0, 1)
@@ -166,12 +181,13 @@ class BaseTrainer:
                 combined = torch.cat((inputs, outputs), dim=3)
                 all_images.append(combined)
         
-        all_images = torch.cat(all_images, dim=0)
-        
-        # Log test results
-        writer.add_image(f'Test/Epoch_{epoch}',
-                        vutils.make_grid(all_images, nrow=1, padding=2, normalize=False),
-                        0)
+        if all_images:
+            all_images = torch.cat(all_images, dim=0)
+            
+            # Log test results
+            writer.add_image(f'Test/Epoch_{epoch}',
+                            vutils.make_grid(all_images, nrow=1, padding=2, normalize=False),
+                            0)
     
     def test_model(self, test_loader, writer, patch_size, stride):
         """
@@ -195,9 +211,21 @@ class BaseTrainer:
                 inputs = inputs.to(self.device)
                 targets = targets.to(self.device)
                 masks = masks.to(self.device)
+                original_shape = inputs[0].shape
+                
+                # Calculate required padding
+                h, w = original_shape[1:]
+                pad_h = (patch_size - h % stride) % stride
+                pad_w = (patch_size - w % stride) % stride
+                
+                # Apply padding if needed
+                if pad_h > 0 or pad_w > 0:
+                    padded_inputs = torch.nn.functional.pad(inputs, (0, pad_w, 0, pad_h), mode='reflect')
+                else:
+                    padded_inputs = inputs
                 
                 # Process image patches
-                input_patches = image_to_patches(inputs[0], patch_size, stride)
+                input_patches = image_to_patches(padded_inputs[0], patch_size, stride)
                 output_patches = []
                 
                 for patch in input_patches:
@@ -205,10 +233,14 @@ class BaseTrainer:
                     output_patches.append(output.squeeze(0))
                 
                 output_patches = torch.stack(output_patches)
-                outputs = patches_to_image(output_patches, inputs[0].shape, patch_size, stride)
+                outputs = patches_to_image(output_patches, padded_inputs[0].shape, patch_size, stride)
+                
+                # Crop back to original size
+                outputs = outputs[:, :original_shape[1], :original_shape[2]]
                 
                 # Calculate and log loss
-                loss = self.calculate_loss(outputs.unsqueeze(0), targets, masks)
+                outputs_for_loss = outputs.unsqueeze(0)
+                loss = self.calculate_loss(outputs_for_loss, targets, masks)
                 test_loss += loss.item()
                 
                 # Store results
@@ -217,14 +249,17 @@ class BaseTrainer:
                 combined = torch.cat((inputs, outputs), dim=3)
                 all_images.append(combined)
         
-        test_loss /= len(test_loader)
-        all_images = torch.cat(all_images, dim=0)
-        
-        # Log test results
-        writer.add_scalar('Loss/test', test_loss, 0)
-        writer.add_image('Test/Input_and_Output_Images',
-                        vutils.make_grid(all_images, nrow=1, padding=2, normalize=False),
-                        0)
+        if all_images:
+            test_loss /= len(test_loader)
+            all_images = torch.cat(all_images, dim=0)
+            
+            # Log test results
+            writer.add_scalar('Loss/test', test_loss, 0)
+            writer.add_image('Test/Input_and_Output_Images',
+                            vutils.make_grid(all_images, nrow=1, padding=2, normalize=False),
+                            0)
+        else:
+            test_loss = 0.0
         
         return test_loss
     

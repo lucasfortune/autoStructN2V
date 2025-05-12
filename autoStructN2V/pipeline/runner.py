@@ -36,11 +36,20 @@ def create_stage2_mask(denoised_patches, config):
     
     # Create extractor with config parameters (using get() with defaults)
     extractor = StructuralNoiseExtractor(
-        center_size=extractor_config.get('center_size', 15),
+        norm_autocorr=extractor_config.get('norm_autocorr', True),
+        log_autocorr=extractor_config.get('log_autocorr', True),
+        crop_autocorr=extractor_config.get('crop_autocorr', True),
+        adapt_autocorr=extractor_config.get('adapt_autocorr', True),
+        adapt_CB=extractor_config.get('adapt_CB', 50.0),
+        adapt_DF=extractor_config.get('adapt_DF', 0.95),
+        center_size=extractor_config.get('center_size', 10),
         base_percentile=extractor_config.get('base_percentile', 50),
-        percentile_decay=extractor_config.get('percentile_decay', 1.1),
+        percentile_decay=extractor_config.get('percentile_decay', 1.15),
         center_ratio_threshold=extractor_config.get('center_ratio_threshold', 0.3),
-        keep_center_component_only=extractor_config.get('keep_center_component_only', True)
+        use_center_proximity=extractor_config.get('use_center_proximity', True),
+        center_proximity_threshold=extractor_config.get('center_proximity_threshold', 0.95),
+        keep_center_component_only=extractor_config.get('keep_center_component_only', True),
+        max_true_pixels=extractor_config.get('max_true_pixels', 25)
     )
     
     # Extract structured mask

@@ -33,12 +33,12 @@ def validate_config(config):
         # First stage parameters
         'stage1': {
             'features': 64,
-            'num_layers': 4,
-            'patch_size': 64,
-            'batch_size': 32,
+            'num_layers': 2,
+            'patch_size': 32,
+            'batch_size': 4,
             'learning_rate': 1e-4,
             'patches_per_image': 100,
-            'mask_percentage': 20.0,
+            'mask_percentage': 15.0,
             'mask_center_size': 1,
             'use_roi': True,
             'roi_threshold': 0.5,
@@ -50,23 +50,32 @@ def validate_config(config):
         # Second stage parameters
         'stage2': {
             'features': 64,
-            'num_layers': 4,
+            'num_layers': 2,
             'patch_size': 64,
-            'batch_size': 32,
-            'learning_rate': 5e-5,
+            'batch_size': 2,
+            'learning_rate': 1e-5,
             'patches_per_image': 200,
             'mask_percentage': 10.0,
-            'use_roi': True,
+            'use_roi': False,
             'roi_threshold': 0.5,
             'scale_factor': 0.25,
-            'select_background': False,  # Focus on structure regions
+            'select_background': False,
             'use_augmentation': True,
             'extractor': {
-                'center_size': 15,
+                'norm_autocorr': True,
+                'log_autocorr': True,
+                'crop_autocorr': True,
+                'adapt_autocorr': True,
+                'adapt_CB': 50.0,
+                'adapt_DF': 0.95,
+                'center_size': 10,
                 'base_percentile': 50,
-                'percentile_decay': 1.1,
+                'percentile_decay': 1.15,
                 'center_ratio_threshold': 0.3,
-                'keep_center_component_only': True
+                'use_center_proximity': True,
+                'center_proximity_threshold': 0.95,
+                'keep_center_component_only': True,
+                'max_true_pixels': 25
             }
         }
     }

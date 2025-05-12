@@ -50,7 +50,7 @@ class AutoStructN2VPredictor:
         Returns:
             numpy.ndarray: Denoised image array
         """
-        #print('test1')
+        print('test1')
         # Generate default output path if not provided
         if output_path is None:
             base_path, ext = os.path.splitext(image_path)
@@ -58,15 +58,23 @@ class AutoStructN2VPredictor:
         
         # Load and normalize the image
         img_array = load_and_normalize_image(image_path)
+
+        # Calculate padding needed
+        h, w = img_array.shape
+        pad_h = (self.patch_size - h % self.stride) % self.stride
+        pad_w = (self.patch_size - w % self.stride) % self.stride
+        
+        # Pad image (using reflection padding to avoid border artifacts)
+        padded_img = np.pad(img_array, ((0, pad_h), (0, pad_w)), mode='reflect')
         
         # Convert to tensor (add batch and channel dimensions)
-        img_tensor = torch.from_numpy(img_array).float().unsqueeze(0).unsqueeze(0)
+        img_tensor = torch.from_numpy(padded_img).float().unsqueeze(0).unsqueeze(0)
         
         # Denoise using patch-based approach
         denoised_tensor = self.denoise_tensor(img_tensor)
         
         # Convert back to numpy array
-        denoised_array = denoised_tensor.squeeze().cpu().numpy()
+        denoised_array = denoised_tensor.squeeze().cpu().numpy()[:h, :w]
         
         # Save the result
         self._save_image(denoised_array, output_path)
