@@ -60,7 +60,9 @@ var/
 # IDE specific files
 .idea/
 .vscode/
-.ipynb_checkpoints
+# Jupyter Notebook checkpoints - exclude ALL .ipynb_checkpoints directories
+**/.ipynb_checkpoints/
+**/.ipynb_checkpoints
 *.swp
 *.swo
 
@@ -82,4 +84,3 @@ Thumbs.db
 .keras/
 .pytorch/
 .nv/
-
