@@ -145,10 +145,12 @@ class FlexibleUNet(nn.Module):
             nn.Sequential: A sequential container of layers
         """
         return nn.Sequential(
-            nn.Conv2d(in_channels, out_channels, kernel_size=3, padding=1),
+            nn.ReflectionPad2d(1),  # Replace standard padding with reflection padding
+            nn.Conv2d(in_channels, out_channels, kernel_size=3, padding=0),  # No padding in Conv2d
             nn.BatchNorm2d(out_channels),
             nn.ReLU(inplace=True),
-            nn.Conv2d(out_channels, out_channels, kernel_size=3, padding=1),
+            nn.ReflectionPad2d(1),  # Replace standard padding with reflection padding
+            nn.Conv2d(out_channels, out_channels, kernel_size=3, padding=0),  # No padding in Conv2d
             nn.BatchNorm2d(out_channels),
             nn.ReLU(inplace=True)
         )
